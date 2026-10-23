@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Student Code Helper</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--paper:#eef3f7;--card:#fff;--ink:#14213d;--muted:#5b6b82;--line:#c9d5e2;--mark:#ffd84d;--bad:#c8372d;--good:#1f7a4d;--code:#f6f9fc}
+@media(prefers-color-scheme:dark){:root{--paper:#0f1626;--card:#172138;--ink:#e8eef8;--muted:#9bacc6;--line:#2c3a57;--mark:#e6bd2e;--bad:#ff7b72;--good:#56d39b;--code:#101a2e}}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font-family:"IBM Plex Sans",system-ui,sans-serif;background:var(--paper);color:var(--ink);line-height:1.5;
+background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);background-size:28px 28px;background-attachment:fixed}
+main{max-width:760px;margin:0 auto;padding:20px 16px 60px}
+h1{font-size:2rem;margin:8px 0 4px;letter-spacing:-.02em}
+h1 span{background:var(--mark);color:#14213d;padding:0 .25em}
+.sub{margin:0 0 18px;color:var(--muted)}
+section{background:var(--card);border:2px solid var(--ink);padding:14px;margin-bottom:14px}
+h2{font-size:1rem;margin:0 0 8px}
+label{font-weight:600;font-size:.9rem}
+select,textarea,button,.btn{font:inherit;color:var(--ink)}
+select{padding:8px;border:2px solid var(--ink);background:var(--card);margin:4px 0 10px}
+textarea{width:100%;border:2px solid var(--line);background:var(--code);padding:10px;font-family:"IBM Plex Mono",monospace;font-size:.9rem;tab-size:4;resize:vertical}
+textarea:focus,select:focus,button:focus-visible,.btn:focus-within{outline:3px solid var(--mark);outline-offset:1px}
+#code{min-height:240px}
+#wl{min-height:70px}
+.row{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
+button,.btn{border:2px solid var(--ink);background:var(--card);padding:9px 14px;cursor:pointer;font-weight:600}
+.btn input{position:absolute;opacity:0;width:1px;height:1px}
+button.primary{background:var(--ink);color:var(--paper)}
+button.run{background:var(--mark);color:#14213d}
+button:hover,.btn:hover{transform:translate(-1px,-1px);box-shadow:3px 3px 0 var(--ink)}
+.hint{font-size:.85rem;color:var(--muted);margin:4px 0 0}
+#status{font-size:.9rem;color:var(--muted);min-height:1.3em}
+#issues{list-style:none;padding:0;margin:0}
+#issues li{padding:8px 10px;margin-bottom:6px;border-left:6px solid var(--bad);background:var(--code)}
+#issues li.ok{border-color:var(--good)}
+#issues li.warn{border-color:var(--mark)}
+#out{white-space:pre-wrap;font-family:"IBM Plex Mono",monospace;font-size:.9rem;background:var(--code);padding:10px;min-height:60px;margin:0;overflow-x:auto}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<main>
+<h1>Student <span>Code Helper</span></h1>
+<p class="sub">Write or scan your code. It checks your syntax and your allowed-words list, then shows the output.</p>
+
+<section>
+<h2>1. Your code</h2>
+<label for="lang">Language</label><br>
+<select id="lang"><option value="python">Python</option><option value="js">JavaScript</option></select>
+<textarea id="code" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="Type your code here, or use Camera / File below"></textarea>
+<div class="row">
+<label class="btn">Camera<input type="file" id="cam" accept="image/*" capture="environment"></label>
+<label class="btn">File<input type="file" id="file" accept=".py,.js,.txt,text/*,image/*"></label>
+</div>
+<div id="status" role="status"></div>
+<p class="hint">Photos are read with OCR. Check the text after scanning: OCR often misses indentation.</p>
+</section>
+
+<section>
+<h2>2. Allowed words (whitelist)</h2>
+<textarea id="wl" spellcheck="false" aria-label="Allowed words"></textarea>
+<p class="hint">Separate words with spaces or commas. Names you create yourself (variables, functions) are always allowed.</p>
+</section>
+
+<div class="row">
+<button class="primary" id="check">Check my code</button>
+<button class="run" id="run">Check and run</button>
+</div>
+
+<section>
+<h2>Feedback</h2>
+<ul id="issues"><li class="warn">Nothing checked yet.</li></ul>
+</section>
+<section>
+<h2>Output</h2>
+<pre id="out">(run your code to see output)</pre>
+</section>
+</main>
+
+<script>
+const $=id=>document.getElementById(id);
+const PRESETS={
+python:"print input int float str len range if elif else for while in def return True False and or not break continue pass list append sum min max round abs",
+js:"console log let const var if else for while function return true false and or break continue Math prompt Number String Array length push"
+};
+$("wl").value=PRESETS.python;
+$("lang").onchange=()=>{$("wl").value=PRESETS[$("lang").value]};
+
+function strip(code,lang){
+  const re=lang==="python"
+    ?/("""[\s\S]*?"""|'''[\s\S]*?'''|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|#.*)/g
+    :/(\/\*[\s\S]*?\*\/|\/\/.*|`(?:\\.|[^`\\])*`|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*')/g;
+  return code.replace(re,m=>m.replace(/[^\n]/g," "));
+}
+function definedNames(s,lang){
+  const d=new Set();let m;
+  const add=t=>t.split(/[^A-Za-z0-9_]+/).forEach(x=>x&&d.add(x));
+  const pats=lang==="python"
+    ?[/\bdef\s+(\w+)\s*\(([^)]*)\)/g,/\bclass\s+(\w+)/g,/\bfor\s+([\w ,]+?)\s+in\b/g,/\bas\s+(\w+)/g,/^[ \t]*([\w \t,]+?)\s*[-+*\/%]?=(?!=)/gm]
+    :[/\b(?:function|class)\s+(\w+)\s*(?:\(([^)]*)\))?/g,/\b(?:let|const|var)\s+([\w ,]+?)\s*(?:=|;|\n|$)/g,/\(([^()]*)\)\s*=>/g,/\b(\w+)\s*=>/g,/\bfor\s*\(\s*(?:let|const|var)?\s*(\w+)\s+(?:of|in)/g,/^[ \t]*(\w+)\s*[-+*\/%]?=(?!=)/gm];
+  pats.forEach(r=>{while((m=r.exec(s)))for(let i=1;i<m.length;i++)if(m[i])add(m[i])});
+  return d;
+}
+function checkWhitelist(code,lang){
+  const s=strip(code,lang),allowed=new Set($("wl").value.split(/[\s,]+/).filter(Boolean)),mine=definedNames(s,lang),bad=new Map();
+  s.split("\n").forEach((line,i)=>{
+    const re=/(^|[^\w.])([A-Za-z_]\w*)/g;let m;
+    while((m=re.exec(line))){const w=m[2];
+      if(!allowed.has(w)&&!mine.has(w)&&!bad.has(w))bad.set(w,i+1);}
+  });
+  return [...bad].map(([w,l])=>`Line ${l}: "${w}" is not on your allowed list.`);
+}
+function checkBrackets(code,lang){
+  const s=strip(code,lang),st=[],pairs={")":"(","]":"[","}":"{"};let line=1;
+  for(const c of s){
+    if(c==="\n")line++;
+    else if("([{".includes(c))st.push([c,line]);
+    else if(pairs[c]){const t=st.pop();if(!t||t[0]!==pairs[c])return `Line ${line}: "${c}" has no matching opening bracket.`;}
+  }
+  if(st.length)return `Line ${st[st.length-1][1]}: "${st[st.length-1][0]}" is never closed.`;
+  return null;
+}
+let pyodide=null;
+async function getPy(){
+  if(pyodide)return pyodide;
+  $("status").textContent="Loading Python (first time takes a few seconds)...";
+  await new Promise((ok,no)=>{const s=document.createElement("script");s.src="https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js";s.onload=ok;s.onerror=()=>no(new Error("Could not load Python. Check your internet connection."));document.head.appendChild(s)});
+  pyodide=await loadPyodide();
+  $("status").textContent="";
+  return pyodide;
+}
+async function pySyntax(code){
+  const py=await getPy();
+  py.globals.set("student_src",code);
+  try{py.runPython("compile(student_src,'your code','exec')");return null}
+  catch(e){const t=String(e.message).trim().split("\n").filter(x=>x.trim());
+    const ln=(String(e.message).match(/line (\d+)/)||[])[1];
+    return (ln?`Line ${ln}: `:"")+t[t.length-1];}
+}
+function jsSyntax(code){try{new Function(code);return null}catch(e){return e.message}}
+function runJS(code){
+  return new Promise(res=>{
+    const src=`const out=[];const console={log:(...a)=>out.push(a.map(String).join(" "))};
+try{(new Function("console",${JSON.stringify(code)}))(console);postMessage({out})}catch(e){postMessage({out,err:String(e)})}`;
+    const w=new Worker(URL.createObjectURL(new Blob([src])));
+    const t=setTimeout(()=>{w.terminate();res({out:[],err:"Stopped: your code ran for more than 3 seconds. Check for a loop that never ends."})},3000);
+    w.onmessage=e=>{clearTimeout(t);w.terminate();res(e.data)};
+    w.onerror=e=>{clearTimeout(t);w.terminate();res({out:[],err:e.message})};
+  });
+}
+async function runPy(code){
+  const py=await getPy(),out=[];
+  py.setStdout({batched:s=>out.push(s)});
+  py.setStderr({batched:s=>out.push(s)});
+  try{await py.runPythonAsync(code);return {out}}
+  catch(e){const t=String(e.message).trim().split("\n");return {out,err:t[t.length-1]}}
+}
+function show(list){
+  const ul=$("issues");ul.innerHTML="";
+  list.forEach(([cls,txt])=>{const li=document.createElement("li");li.className=cls;li.textContent=txt;ul.appendChild(li)});
+}
+async function check(run){
+  const code=$("code").value,lang=$("lang").value;
+  if(!code.trim()){show([["warn","Write or scan some code first."]]);return}
+  $("out").textContent="";
+  const issues=[];
+  try{
+    const br=checkBrackets(code,lang);
+    let syn=br;
+    if(!syn)syn=lang==="python"?await pySyntax(code):jsSyntax(code);
+    if(syn)issues.push(["",`Syntax error: ${syn}`]);
+  }catch(e){issues.push(["warn",e.message])}
+  const wl=checkWhitelist(code,lang);
+  wl.forEach(m=>issues.push(["",m]));
+  if(!issues.length){show([["ok","All good: no syntax errors and only allowed words used."]])}
+  else show(issues);
+  if(run&&!issues.some(i=>i[0]==="")){
+    $("out").textContent="Running...";
+    const r=lang==="python"?await runPy(code):await runJS(code);
+    $("out").textContent=(r.out.join("\n")+(r.err?"\n\nError: "+r.err:"")).trim()||"(no output)";
+  }else if(run)$("out").textContent="Fix the problems above, then run again.";
+}
+$("check").onclick=()=>check(false);
+$("run").onclick=()=>check(true);
+
+async function loadInput(f){
+  if(!f)return;
+  if(f.type.startsWith("image/")){
+    $("status").textContent="Reading image... (first time takes a few seconds)";
+    try{
+      if(!window.Tesseract)await new Promise((ok,no)=>{const s=document.createElement("script");s.src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";s.onload=ok;s.onerror=()=>no();document.head.appendChild(s)});
+      const r=await Tesseract.recognize(f,"eng");
+      $("code").value=r.data.text;
+      $("status").textContent="Done. Review the scanned text and fix any mistakes.";
+    }catch(e){$("status").textContent="Could not read the image. Check your internet connection and try again."}
+  }else{
+    $("code").value=await f.text();
+    $("lang").value=/\.js$/i.test(f.name)?"js":"python";
+    if(/\.js$/i.test(f.name))$("wl").value=PRESETS.js;
+    $("status").textContent="Loaded "+f.name;
+  }
+}
+$("cam").onchange=e=>loadInput(e.target.files[0]);
+$("file").onchange=e=>loadInput(e.target.files[0]);
+</script>
+</body>
+  </html>
